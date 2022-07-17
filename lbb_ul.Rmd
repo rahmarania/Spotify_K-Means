@@ -1,0 +1,187 @@
+---
+title: "Clustering Spotify songs with K-Means"
+author: "Rahma Fairuz Rania"
+date: '2022-07-09'
+output: 
+ html_document:
+   toc: true
+   toc_float: true
+   highlight: zenburn
+   df_print: paged
+   theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Case : From music data in Spotify, we want to clustering music with the same charateristic in 1 group. Data can be downloaded here https://www.kaggle.com/zaheenhamidani/ultimate-spotify-tracks-db
+
+# Read Data
+
+```{r}
+songs <- read.csv('SpotifyFeatures.csv')
+head(songs)
+```
+
+# Data Wrangling
+
+Check data structure
+
+```{r}
+str(songs)
+```
+
+From data songs, there's column below
+
+* `ï..genre` : Genre of Music
+* `artist_name` : The Name of Music's Singer
+* `track_name` : Name of the Song
+* `track_id` : The Spotify ID for the track.
+* `popularity` : Song Popularity
+* `acousticness` : A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 
+* `danceability` : Danceability describes how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. 
+* `` **duration_ms** : The duration of the track in milliseconds.
+* `energy` : Energy is a measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity.
+* `instrumentalness` : Predicts whether a track contains no vocals. "Ooh" and "aah" sounds are treated as instrumental in this context.
+* `key` : The key the track is in. Integers map to pitches using standard Pitch Class notation. E.g. 0 = C, 1 = C♯/D♭, 2 = D, and so on. If no key was detected, the value is -1.
+* `liveness` : Detects the presence of an audience in the recording.
+* `loudness` : The overall loudness of a track in decibels (dB). Loudness values are averaged across the entire track and are useful for comparing relative loudness of tracks. 
+* `mode` :  Mode indicates the modality (major or minor) of a track, the type of scale from which its melodic content is derived.
+* `speechiness` : Speechiness detects the presence of spoken words in a track.
+* `tempo` : The overall estimated tempo of a track in beats per minute (BPM).
+* `time_signature` : The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure).
+* `valence` : A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track.
+
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+songs <- songs %>% mutate(duration_ms = duration_ms/60000) %>% rename(duration_in_min = duration_ms)
+
+head(songs)
+```
+
+Check Missing Value If exist, remove it
+
+```{r}
+anyNA(songs)
+```
+
+Check duplicate data. If exist, remove it
+
+```{r}
+sum(duplicated(songs$track_id))
+spotify <- songs[!duplicated(songs$track_id),]
+
+sum(duplicated(spotify$track_id))
+```
+
+# Exploratory Data Analysis
+
+We want to do clustering from the track_id Assign track_id column into rownames
+
+```{r}
+rownames(spotify) <- spotify$track_id 
+```
+
+Select song with popularity >= 70 to speed up computation
+
+```{r}
+spotify <- spotify %>% filter(popularity >= 70)
+```
+
+Because K-Means use the numerical variable, do subset data just for numeric
+
+```{r}
+spotify <- spotify %>% select_if(is.numeric)
+```
+
+Check the numerical variable
+
+```{r}
+str(spotify)
+```
+
+# Data Pre-Processing
+
+Do scaling data for standarization
+
+```{r}
+spotify_scale <- scale(spotify)
+```
+
+
+Search for optimum k with fviz_nbclust method from library(factoextra)
+
+```{r, warning=FALSE, message=FALSE}
+RNGkind(sample.kind = "Rounding")
+set.seed(572)
+library(factoextra)
+
+fviz_nbclust(x = spotify_scale,
+             FUNcluster = kmeans,
+             method = "wss")
+```
+
+From the graph above, let's take 4 for the optimum k to do k-means clustering
+
+# K-Means Clustering
+
+Do the clustering using the optimum key which we have search it though elbow method above.
+
+```{r, warning=FALSE, message=FALSE}
+RNGkind(sample.kind = "Rounding")
+set.seed(100)
+spotify_kmeans <- kmeans(spotify_scale, centers = 4)
+
+spotify_kmeans$size
+```
+From data above, we know that in cluster 1 there's 690 observation, cluster 2 there's 1396 observation, cluster 3 there's 1065 observation, cluster 4 there's 684 observation. For better information, let's do profiling with **ggRadar** function from library **ggiraphExtra**
+
+```{r, warning=FALSE, message=FALSE}
+# Assign clustering result into data
+spotify$cluster <- spotify_kmeans$cluster
+
+library(ggiraphExtra)
+ggRadar(data = spotify, mapping = aes(colours = cluster), interactive = T)
+```
+
+For better information, we can use summarize for viewing the minimum and maximum value of each cluster
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+spotify_centroid <- spotify %>% group_by(cluster) %>% summarise_all(mean) 
+
+spotify_centroid %>% 
+  pivot_longer(-cluster) %>% 
+  group_by(name) %>% 
+  summarize(
+    min = which.min(value),
+    max = which.max(value))
+```
+
+
+
+# Conclusion
+
+From information above, here are some insight that can help to make decision
+
+* `Cluster 1`  : 690 observation
+* `Cluster 2`  : 1396 observation
+* `Cluster 3`  : 1065 observation
+* `Cluster 4`  : 684 observation.
+
+Audio characteristics in every cluster
+
+* `Cluster 1` 
+  Highest : acousticness, instrumentalness; 
+  Lowest  : energy, liveness, loudness, speechiness, tempo, valence
+* `Cluster 2` 
+  Highest : loudness, valence; 
+  Lowest  : not spesific
+* `Cluster 3` 
+  Highest : duration_in_min, energy, liveness, tempo; 
+  Lowest  : acousticness, danceability, popularity
+* `Cluster 4` 
+  Highest : danceability, popularity, speechiness; 
+  Lowest  : duration_in_min, instrumentalness
